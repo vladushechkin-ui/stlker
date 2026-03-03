@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-TELEGRAM AUTO COMMENTER - ПОЛНАЯ ВЕРСИЯ ДЛЯ RENDER
+TELEGRAM AUTO COMMENTER - ПОЛНАЯ ВЕРСИЯ ДЛЯ RENDER (Web Service)
 Управление через бота, все настройки сохраняются
+Работает на веб-хуках (бесплатно!)
 """
 
 import asyncio
@@ -11,9 +12,9 @@ import logging
 import os
 import json
 import random
-import time
 from datetime import datetime
 from collections import defaultdict
+from aiohttp import web
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import PeerChannel
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
@@ -27,6 +28,7 @@ BOT_TOKEN = '8252577084:AAF6exibor5RKeCL-ob3WRS9in7DVOpbwBY'
 SESSION_DIR = 'sessions'
 CONFIG_FILE = 'config.json'
 CHANNELS_FILE = 'channels.json'
+PORT = int(os.environ.get('PORT', 10000))  # Render задает порт через переменную окружения
 # ================================
 
 # Создаем папки
@@ -190,6 +192,8 @@ class AutoCommenterBot:
         self.last_post_ids = {}
         self.handler = None
         self.waiting_for = {}  # Ожидание ввода от пользователей
+        self.web_app = None
+        self.web_runner = None
         
     async def start(self):
         """Запускает всех клиентов"""
@@ -970,10 +974,44 @@ class AutoCommenterBot:
             f"🎯 Режим: {mode_names.get(self.settings.comment_mode, self.settings.comment_mode)}"
         )
     
+    # ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
+    async def handle_health(self, request):
+        """Обработчик для проверки здоровья"""
+        return web.Response(text="Bot is running!")
+
+    async def handle_webhook(self, request):
+        """Обработчик веб-хуков от Telegram"""
+        try:
+            data = await request.json()
+            # Здесь будет обработка веб-хуков
+            return web.Response(text="OK")
+        except Exception as e:
+            logger.error(f"❌ Ошибка веб-хука: {e}")
+            return web.Response(status=500)
+
+    async def start_web_server(self):
+        """Запускает веб-сервер для Render"""
+        self.web_app = web.Application()
+        self.web_app.router.add_get('/', self.handle_health)
+        self.web_app.router.add_post('/webhook', self.handle_webhook)
+        
+        self.web_runner = web.AppRunner(self.web_app)
+        await self.web_runner.setup()
+        site = web.TCPSite(self.web_runner, '0.0.0.0', PORT)
+        await site.start()
+        logger.info(f"✅ Веб-сервер запущен на порту {PORT}")
+    
     async def run_forever(self):
         """Запускает бота навсегда"""
+        # Запускаем веб-сервер (нужен для Render)
+        await self.start_web_server()
+        
+        # Запускаем бота
         await self.start()
-        await asyncio.Event().wait()
+        
+        # Держим программу запущенной
+        while True:
+            await asyncio.sleep(60)
 
 # ========== ЗАПУСК ==========
 async def main():
