@@ -7,7 +7,7 @@ import random
 from aiohttp import web
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import PeerChannel
-from telethon.errors import SessionPasswordNeededError, FloodWaitError
+from telethon.errors import SessionPasswordNeededError, FloodWaitError, PhoneCodeExpiredError
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest, CheckChatInviteRequest
 
@@ -79,7 +79,7 @@ class Bot:
         self.waiting = {}
     
     async def start(self):
-        # ВЕБ-СЕРВЕР (ПРАВИЛЬНО)
+        # ВЕБ-СЕРВЕР
         app = web.Application()
         app.router.add_get('/', lambda r: web.Response(text='OK'))
         runner = web.AppRunner(app)
@@ -187,7 +187,7 @@ class Bot:
             client = self.s.pending_auth[uid]['client']
             await client.connect()
             await client.send_code_request(text)
-            await e.reply("📲 Введи код:", buttons=[[Button.inline("❌ Отмена", 'main_menu')]])
+            await e.reply("📲 Введи код (придет в Telegram):", buttons=[[Button.inline("❌ Отмена", 'main_menu')]])
             self.waiting[uid] = 'add_account_code'
         
         elif action == 'add_account_code':
@@ -204,6 +204,16 @@ class Bot:
                 data['step'] = 'password'
                 await e.reply("🔐 Введи пароль 2FA:", buttons=[[Button.inline("❌ Отмена", 'main_menu')]])
                 self.waiting[uid] = 'add_account_password'
+            except PhoneCodeExpiredError:
+                # Код истек - запрашиваем новый
+                await e.reply("❌ Код истек. Запрашиваю новый код...", buttons=[[Button.inline("❌ Отмена", 'main_menu')]])
+                try:
+                    await data['client'].send_code_request(data['phone'])
+                    await e.reply("📲 Новый код отправлен. Введи его:", buttons=[[Button.inline("❌ Отмена", 'main_menu')]])
+                    self.waiting[uid] = 'add_account_code'
+                except Exception as ex:
+                    await e.reply(f"❌ Ошибка: {ex}", buttons=self.main_menu())
+                    self.s.pending_auth.pop(uid, None)
             except Exception as ex:
                 await e.reply(f"❌ Ошибка: {ex}", buttons=self.main_menu())
                 self.s.pending_auth.pop(uid, None)
